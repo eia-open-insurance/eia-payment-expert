@@ -1,5 +1,6 @@
 package com.eia.payment.expert;
 
+import com.eia.platform.libs.outbox.OutboxRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -45,6 +46,9 @@ class PaymentControllerTest {
 
     @MockitoBean
     private PaymentRepository repository;
+
+    @MockitoBean
+    private OutboxRepository outbox;
 
     @Test
     void listsPaymentsForTenant() throws Exception {
