@@ -1,0 +1,17 @@
+server:
+  port: 8097
+spring:
+  application:
+    name: eia-payment-expert
+  datasource:
+    url: jdbc:postgresql://localhost:5432/eia_payment
+    username: postgres
+    password: postgres
+  sql:
+    init:
+      mode: always
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
