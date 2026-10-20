@@ -41,6 +41,32 @@ CREATE TABLE IF NOT EXISTS payment (
 CREATE INDEX IF NOT EXISTS idx_payment_tenant_status ON payment (tenant_id, status);
 CREATE INDEX IF NOT EXISTS idx_payment_tenant_payee ON payment (tenant_id, payee_party_id);
 
+-- Payment allocations split a payment amount across a claim or policy target
+-- and a financial component. Additive and idempotent so an existing database
+-- gains the table on startup; the sum of allocations may not exceed the
+-- payment amount (enforced by the service inside the write transaction).
+CREATE TABLE IF NOT EXISTS payment_allocation (
+    id UUID PRIMARY KEY,
+    tenant_id UUID NOT NULL,
+    payment_id UUID NOT NULL REFERENCES payment (id),
+    target_type VARCHAR(32) NOT NULL,
+    target_id UUID NOT NULL,
+    component VARCHAR(32) NOT NULL,
+    amount NUMERIC(19,4) NOT NULL,
+    currency CHAR(3) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    CONSTRAINT ck_payment_allocation_amount CHECK (amount > 0),
+    CONSTRAINT ck_payment_allocation_target_type CHECK (target_type IN (
+        'DIRECT_CLAIM', 'ASSUMED_CLAIM', 'POLICY'
+    )),
+    CONSTRAINT ck_payment_allocation_component CHECK (component IN (
+        'INDEMNITY', 'DEFENSE_COST', 'ALAE', 'EXPENSE', 'COMMISSION', 'OTHER'
+    ))
+);
+
+CREATE INDEX IF NOT EXISTS idx_payment_allocation_tenant_payment
+    ON payment_allocation (tenant_id, payment_id);
+
 -- Payment source linkage (DIRECT_CLAIM, ASSUMED_CLAIM, POLICY, OTHER). Additive
 -- and idempotent so an existing payment table gains the columns on startup.
 ALTER TABLE payment ADD COLUMN IF NOT EXISTS source_type VARCHAR(32);

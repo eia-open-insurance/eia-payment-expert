@@ -41,6 +41,7 @@ class PaymentOutboxIntegrationTest {
     void clean() {
         transaction = new TransactionTemplate(transactionManager);
         jdbc.update("DELETE FROM outbox_event");
+        jdbc.update("DELETE FROM payment_allocation");
         jdbc.update("DELETE FROM payment");
     }
 

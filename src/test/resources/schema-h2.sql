@@ -31,6 +31,30 @@ CREATE INDEX IF NOT EXISTS idx_payment_tenant_source_created
 
 DROP INDEX IF EXISTS idx_payment_tenant_source;
 
+-- H2-compatible copy of the payment allocation table, mirroring the idempotent
+-- PostgreSQL DDL. The amount and enumeration checks match production.
+CREATE TABLE IF NOT EXISTS payment_allocation (
+    id UUID PRIMARY KEY,
+    tenant_id UUID NOT NULL,
+    payment_id UUID NOT NULL REFERENCES payment (id),
+    target_type VARCHAR(32) NOT NULL,
+    target_id UUID NOT NULL,
+    component VARCHAR(32) NOT NULL,
+    amount NUMERIC(19,4) NOT NULL,
+    currency CHAR(3) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    CONSTRAINT ck_payment_allocation_amount CHECK (amount > 0),
+    CONSTRAINT ck_payment_allocation_target_type CHECK (target_type IN (
+        'DIRECT_CLAIM', 'ASSUMED_CLAIM', 'POLICY'
+    )),
+    CONSTRAINT ck_payment_allocation_component CHECK (component IN (
+        'INDEMNITY', 'DEFENSE_COST', 'ALAE', 'EXPENSE', 'COMMISSION', 'OTHER'
+    ))
+);
+
+CREATE INDEX IF NOT EXISTS idx_payment_allocation_tenant_payment
+    ON payment_allocation (tenant_id, payment_id);
+
 -- H2-compatible copy of the PostgreSQL outbox table. JSON payloads are TEXT
 -- here; production DDL uses jsonb.
 CREATE TABLE IF NOT EXISTS outbox_event (

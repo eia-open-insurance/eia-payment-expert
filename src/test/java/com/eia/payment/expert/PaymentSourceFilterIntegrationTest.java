@@ -42,8 +42,9 @@ class PaymentSourceFilterIntegrationTest {
 
     @BeforeEach
     void clean() {
-        jdbc.update("DELETE FROM payment");
         jdbc.update("DELETE FROM outbox_event");
+        jdbc.update("DELETE FROM payment_allocation");
+        jdbc.update("DELETE FROM payment");
     }
 
     @Test

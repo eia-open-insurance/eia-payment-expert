@@ -16,8 +16,9 @@ import java.util.UUID;
 
 /**
  * Event factory for the Payment vertical. Event names are the Payment slice
- * names; only {@code payment.payment.created} exists in the planned catalog
- * (see the rollout report).
+ * names; the planned catalog carries {@code payment.payment.created} and the
+ * allocation slice adds {@code payment.allocation.created} (see the rollout
+ * report).
  *
  * <p>Payment is a shared financial service and the current Payment API has no
  * book input; the canonical envelope requires a book, so these events are
@@ -25,16 +26,20 @@ import java.util.UUID;
  *
  * <p>Rows start at version 0 for API compatibility, while the canonical envelope
  * requires {@code aggregateVersion >= 1}; the event version is therefore the row
- * version plus one (create -> 1, first update -> 2).</p>
+ * version plus one (create -> 1, first update -> 2). Payment allocations are
+ * append-only child records with no row version of their own, so their events
+ * use the {@code PaymentAllocation} aggregate at version 1.</p>
  */
 final class PaymentEvents {
     static final String CREATED = "payment.payment.created";
     static final String UPDATED = "payment.payment.updated";
     static final String STATUS_CHANGED = "payment.payment.status-changed";
+    static final String ALLOCATION_CREATED = "payment.allocation.created";
 
     private static final Book EVENT_BOOK = Book.DIRECT;
     private static final String VERTICAL = "payment";
     private static final String AGGREGATE_TYPE = "Payment";
+    private static final String ALLOCATION_AGGREGATE_TYPE = "PaymentAllocation";
     private static final String SOURCE_BUILD = "eia-payment-expert@0.1.0-SNAPSHOT";
 
     private PaymentEvents() {
@@ -81,6 +86,53 @@ final class PaymentEvents {
         }
 
         return envelope(after, STATUS_CHANGED, after.version() + 1L, now, data);
+    }
+
+    /**
+     * Allocation of part of a payment to a claim or policy target and a
+     * financial component. The payload carries the parent payment identity, the
+     * allocation fields, and the payment-level allocated and payment amounts.
+     *
+     * <p>Allocations never bump the payment row version, so the event uses the
+     * allocation id as its own {@code PaymentAllocation} aggregate at version 1.
+     * That keeps the outbox aggregate-version key unique when one payment
+     * receives several allocations.</p>
+     */
+    static EventEnvelope allocationCreated(Payment payment, PaymentAllocation allocation,
+                                           BigDecimal totalAllocated, Instant now) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("paymentId", payment.id());
+        data.put("paymentNumber", payment.paymentNumber());
+        data.put("targetType", allocation.targetType());
+        data.put("targetId", allocation.targetId());
+        data.put("component", allocation.component());
+        data.put("amount", money(allocation.amount()));
+        data.put("currency", allocation.currency());
+        data.put("totalAllocated", money(totalAllocated));
+        data.put("paymentAmount", money(payment.amount()));
+
+        UUID eventId = EventIds.deterministic(payment.tenantId(), ALLOCATION_AGGREGATE_TYPE,
+                allocation.id(), 1L, ALLOCATION_CREATED);
+        return EventEnvelope.builder()
+                .eventId(eventId)
+                .eventType(ALLOCATION_CREATED)
+                .eventVersion(1)
+                .occurredAt(now)
+                .recordedAt(now)
+                .tenantId(payment.tenantId())
+                .book(EVENT_BOOK)
+                .vertical(VERTICAL)
+                .aggregateType(ALLOCATION_AGGREGATE_TYPE)
+                .aggregateId(allocation.id())
+                .aggregateVersion(1L)
+                .sequence(0)
+                .actor(EventActor.system("eia-payment-expert"))
+                .subject(EventSubject.of(VERTICAL, "payment-allocation", allocation.id(),
+                        payment.paymentNumber()))
+                .links(List.of())
+                .data(data)
+                .metadata(EventMetadata.v1(SOURCE_BUILD))
+                .build();
     }
 
     private static Map<String, Object> identity(Payment payment) {
