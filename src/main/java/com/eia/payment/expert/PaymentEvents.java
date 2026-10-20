@@ -49,6 +49,9 @@ final class PaymentEvents {
         data.put("payeePartyId", payment.payeePartyId());
         data.put("paymentDate", payment.paymentDate() == null ? null : payment.paymentDate().toString());
         data.put("version", payment.version());
+        data.put("sourceType", payment.sourceType());
+        data.put("sourceId", payment.sourceId());
+        data.put("sourceReference", payment.sourceReference());
 
         return envelope(payment, CREATED, payment.version() + 1L, now, data);
     }

@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * Payment invariants shared by create and status-change operations.
@@ -34,6 +35,14 @@ public final class PaymentRules {
             "FAILED", "REJECTED", "CANCELLED", "STOPPED", "RETURNED", "REVERSED",
             "RECONCILED", "ESCHEATED", "VOID"
     );
+
+    /** Payment source linkage types (claim, policy, or an unclassified source). */
+    public static final Set<String> SOURCE_TYPES = Set.of(
+            "DIRECT_CLAIM", "ASSUMED_CLAIM", "POLICY", "OTHER"
+    );
+
+    /** Human-readable source references (for example CLM-2026-0000001). */
+    public static final int SOURCE_REFERENCE_MAX_LENGTH = 64;
 
     /** A payment may only be created before authority and approval. */
     public static final Set<String> INITIAL_STATUSES = Set.of("DRAFT", "PENDING_AUTHORITY");
@@ -121,6 +130,8 @@ public final class PaymentRules {
             }
         }
 
+        validateSourceLinkage(request.sourceType(), request.sourceId(), request.sourceReference(), issues);
+
         if (request.payeePartyId() == null) {
             issues.add(new ApiException.FieldIssue("payeePartyId", "payeePartyId is required"));
         }
@@ -130,6 +141,36 @@ public final class PaymentRules {
 
         if (!issues.isEmpty()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "Payment validation failed", issues);
+        }
+    }
+
+    /**
+     * Source linkage is all-or-nothing for classified sources: a claim or policy
+     * source always carries both a type and an id. OTHER is the escape hatch for
+     * a source identified only by its human reference. sourceReference is
+     * optional metadata and never replaces sourceId for a classified source.
+     */
+    private static void validateSourceLinkage(String rawType, UUID sourceId,
+                                              String rawReference,
+                                              List<ApiException.FieldIssue> issues) {
+        if (rawType == null || rawType.isBlank()) {
+            if (sourceId != null) {
+                issues.add(new ApiException.FieldIssue("sourceType",
+                        "sourceType is required when sourceId is supplied"));
+            }
+        } else {
+            String sourceType = rawType.trim().toUpperCase(Locale.ROOT);
+            if (!SOURCE_TYPES.contains(sourceType)) {
+                issues.add(new ApiException.FieldIssue("sourceType", "Unknown source type: " + rawType));
+            } else if (!"OTHER".equals(sourceType) && sourceId == null) {
+                issues.add(new ApiException.FieldIssue("sourceId",
+                        "sourceId is required when sourceType is " + sourceType));
+            }
+        }
+
+        if (rawReference != null && rawReference.trim().length() > SOURCE_REFERENCE_MAX_LENGTH) {
+            issues.add(new ApiException.FieldIssue("sourceReference",
+                    "sourceReference must be at most " + SOURCE_REFERENCE_MAX_LENGTH + " characters"));
         }
     }
 
@@ -215,6 +256,30 @@ public final class PaymentRules {
                     "paymentNumber must match PAY-{YEAR}-{7 digits}: " + rawNumber);
         }
         return number;
+    }
+
+    public static String normalizeSourceType(String rawType) {
+        if (rawType == null || rawType.isBlank()) {
+            return null;
+        }
+        String sourceType = rawType.trim().toUpperCase(Locale.ROOT);
+        if (!SOURCE_TYPES.contains(sourceType)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_SOURCE_TYPE",
+                    "Unknown source type: " + rawType);
+        }
+        return sourceType;
+    }
+
+    public static String normalizeSourceReference(String rawReference) {
+        if (rawReference == null || rawReference.isBlank()) {
+            return null;
+        }
+        String reference = rawReference.trim();
+        if (reference.length() > SOURCE_REFERENCE_MAX_LENGTH) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_SOURCE_REFERENCE",
+                    "sourceReference must be at most " + SOURCE_REFERENCE_MAX_LENGTH + " characters");
+        }
+        return reference;
     }
 
     public static void assertExecutionAllowed(String fromStatus, String toStatus) {

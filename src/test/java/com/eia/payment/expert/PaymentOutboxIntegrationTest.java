@@ -23,6 +23,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class PaymentOutboxIntegrationTest {
     private static final UUID TENANT = UUID.fromString("11111111-1111-7111-8111-111111111111");
     private static final UUID PAYEE = UUID.fromString("22222222-2222-7222-8222-222222222222");
+    private static final UUID SOURCE_ID = UUID.fromString("44444444-4444-7444-8444-444444444444");
     private static final LocalDate PAYMENT_DATE = LocalDate.of(2026, 10, 19);
 
     @Autowired
@@ -80,6 +81,50 @@ class PaymentOutboxIntegrationTest {
                 .contains("\"vertical\":\"payment\"")
                 .contains("\"businessKey\":\"PAY-2026-0000001\"")
                 .contains("\"schemaVersion\":\"1.0.0\"");
+    }
+
+    @Test
+    void createPersistsSourceLinkageAndPublishesItInTheCreatedEvent() {
+        Payment payment = service.create(requestWithSource("PAY-2026-0000005",
+                "direct_claim", SOURCE_ID, "  CLM-2026-0000001  "));
+
+        assertThat(payment.sourceType()).isEqualTo("DIRECT_CLAIM");
+        assertThat(payment.sourceId()).isEqualTo(SOURCE_ID);
+        assertThat(payment.sourceReference()).isEqualTo("CLM-2026-0000001");
+
+        Map<String, Object> row = jdbc.queryForMap("""
+                SELECT source_type, source_id, source_reference
+                  FROM payment
+                 WHERE id = ?
+                """, payment.id());
+        assertThat(row.get("source_type")).isEqualTo("DIRECT_CLAIM");
+        assertThat(row.get("source_id")).isEqualTo(SOURCE_ID);
+        assertThat(row.get("source_reference")).isEqualTo("CLM-2026-0000001");
+
+        String payload = jdbc.queryForObject("""
+                SELECT payload
+                  FROM outbox_event
+                 WHERE aggregate_id = ? AND event_type = 'payment.payment.created'
+                """, String.class, payment.id());
+        assertThat(payload)
+                .contains("\"sourceType\":\"DIRECT_CLAIM\"")
+                .contains("\"sourceId\":\"" + SOURCE_ID + "\"")
+                .contains("\"sourceReference\":\"CLM-2026-0000001\"");
+    }
+
+    @Test
+    void createPersistsOtherSourceIdentifiedOnlyByReference() {
+        Payment payment = service.create(requestWithSource("PAY-2026-0000006",
+                "OTHER", null, "CLM-2026-0000009"));
+
+        Map<String, Object> row = jdbc.queryForMap("""
+                SELECT source_type, source_id, source_reference
+                  FROM payment
+                 WHERE id = ?
+                """, payment.id());
+        assertThat(row.get("source_type")).isEqualTo("OTHER");
+        assertThat(row.get("source_id")).isNull();
+        assertThat(row.get("source_reference")).isEqualTo("CLM-2026-0000009");
     }
 
     @Test
@@ -159,7 +204,14 @@ class PaymentOutboxIntegrationTest {
 
     private CreatePaymentRequest request(String paymentNumber) {
         return new CreatePaymentRequest(TENANT, paymentNumber, "INDEMNITY", null,
-                new BigDecimal("125000.00"), "USD", PAYEE, PAYMENT_DATE);
+                new BigDecimal("125000.00"), "USD", PAYEE, PAYMENT_DATE, null, null, null);
+    }
+
+    private CreatePaymentRequest requestWithSource(String paymentNumber, String sourceType,
+                                                   UUID sourceId, String sourceReference) {
+        return new CreatePaymentRequest(TENANT, paymentNumber, "INDEMNITY", null,
+                new BigDecimal("125000.00"), "USD", PAYEE, PAYMENT_DATE,
+                sourceType, sourceId, sourceReference);
     }
 
     private int count(String table) {

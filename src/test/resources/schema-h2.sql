@@ -19,6 +19,14 @@ CREATE TABLE IF NOT EXISTS payment (
     CONSTRAINT ck_payment_amount CHECK (amount > 0)
 );
 
+-- Payment source linkage, mirroring the idempotent PostgreSQL ALTER statements.
+ALTER TABLE payment ADD COLUMN IF NOT EXISTS source_type VARCHAR(32);
+ALTER TABLE payment ADD COLUMN IF NOT EXISTS source_id UUID;
+ALTER TABLE payment ADD COLUMN IF NOT EXISTS source_reference VARCHAR(64);
+
+CREATE INDEX IF NOT EXISTS idx_payment_tenant_source
+    ON payment (tenant_id, source_type, source_id);
+
 -- H2-compatible copy of the PostgreSQL outbox table. JSON payloads are TEXT
 -- here; production DDL uses jsonb.
 CREATE TABLE IF NOT EXISTS outbox_event (

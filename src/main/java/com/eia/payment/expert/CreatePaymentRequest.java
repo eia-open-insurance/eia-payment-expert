@@ -15,5 +15,8 @@ public record CreatePaymentRequest(
         @NotNull BigDecimal amount,
         @NotBlank String currency,
         @NotNull UUID payeePartyId,
-        @NotNull LocalDate paymentDate
+        @NotNull LocalDate paymentDate,
+        String sourceType,
+        UUID sourceId,
+        String sourceReference
 ) {}

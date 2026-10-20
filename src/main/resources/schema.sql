@@ -41,6 +41,15 @@ CREATE TABLE IF NOT EXISTS payment (
 CREATE INDEX IF NOT EXISTS idx_payment_tenant_status ON payment (tenant_id, status);
 CREATE INDEX IF NOT EXISTS idx_payment_tenant_payee ON payment (tenant_id, payee_party_id);
 
+-- Payment source linkage (DIRECT_CLAIM, ASSUMED_CLAIM, POLICY, OTHER). Additive
+-- and idempotent so an existing payment table gains the columns on startup.
+ALTER TABLE payment ADD COLUMN IF NOT EXISTS source_type VARCHAR(32);
+ALTER TABLE payment ADD COLUMN IF NOT EXISTS source_id UUID;
+ALTER TABLE payment ADD COLUMN IF NOT EXISTS source_reference VARCHAR(64);
+
+CREATE INDEX IF NOT EXISTS idx_payment_tenant_source
+    ON payment (tenant_id, source_type, source_id);
+
 -- Transactional outbox (SPEC 7.5.1). The canonical copy lives in
 -- eia-platform/libs/src/main/resources/db/outbox_event.sql; keep both in sync.
 CREATE TABLE IF NOT EXISTS outbox_event (

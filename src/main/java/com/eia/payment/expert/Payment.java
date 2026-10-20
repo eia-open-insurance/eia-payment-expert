@@ -22,5 +22,8 @@ public record Payment(
         LocalDate paymentDate,
         int version,
         Instant createdAt,
-        Instant updatedAt
+        Instant updatedAt,
+        String sourceType,
+        UUID sourceId,
+        String sourceReference
 ) {}

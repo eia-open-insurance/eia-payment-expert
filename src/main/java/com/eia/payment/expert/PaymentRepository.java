@@ -18,7 +18,8 @@ import java.util.UUID;
 public class PaymentRepository {
     private static final String SELECT_COLUMNS = """
             SELECT id, tenant_id, payment_number, payment_type, status, amount, currency,
-                   payee_party_id, payment_date, version, created_at, updated_at
+                   payee_party_id, payment_date, version, created_at, updated_at,
+                   source_type, source_id, source_reference
               FROM payment
             """;
 
@@ -34,7 +35,10 @@ public class PaymentRepository {
             rs.getObject("payment_date", LocalDate.class),
             rs.getInt("version"),
             rs.getTimestamp("created_at").toInstant(),
-            rs.getTimestamp("updated_at").toInstant()
+            rs.getTimestamp("updated_at").toInstant(),
+            rs.getString("source_type"),
+            rs.getObject("source_id", UUID.class),
+            rs.getString("source_reference")
     );
 
     private final JdbcTemplate jdbc;
@@ -69,15 +73,20 @@ public class PaymentRepository {
             paymentNumber = nextPaymentNumber(request.tenantId(), paymentDate);
         }
 
+        String sourceType = PaymentRules.normalizeSourceType(request.sourceType());
+        String sourceReference = PaymentRules.normalizeSourceReference(request.sourceReference());
+
         UUID id = Uuid7.generate();
         Instant now = Instant.now();
         jdbc.update("""
                 INSERT INTO payment (id, tenant_id, payment_number, payment_type, status, amount,
-                                     currency, payee_party_id, payment_date, version, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+                                     currency, payee_party_id, payment_date, version, created_at, updated_at,
+                                     source_type, source_id, source_reference)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
                 """, id, request.tenantId(), paymentNumber, paymentType, status, amount,
                 currency, request.payeePartyId(), paymentDate,
-                Timestamp.from(now), Timestamp.from(now));
+                Timestamp.from(now), Timestamp.from(now),
+                sourceType, request.sourceId(), sourceReference);
         return findById(request.tenantId(), id).orElseThrow();
     }
 
