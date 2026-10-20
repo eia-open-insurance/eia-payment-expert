@@ -27,7 +27,21 @@ public class PaymentService {
     }
 
     public List<Payment> list(UUID tenantId) {
-        return repository.findAll(tenantId);
+        return list(tenantId, null, null);
+    }
+
+    /**
+     * Tenant-scoped list, optionally narrowed to the payments linked to one
+     * source. The filter is all-or-nothing: a partial pair is rejected rather
+     * than silently widening the result.
+     */
+    public List<Payment> list(UUID tenantId, String rawSourceType, UUID sourceId) {
+        String sourceType = PaymentRules.normalizeSourceType(rawSourceType);
+        PaymentRules.validateSourceFilter(sourceType, sourceId);
+        if (sourceType == null) {
+            return repository.findAll(tenantId);
+        }
+        return repository.findAllBySource(tenantId, sourceType, sourceId);
     }
 
     public Payment get(UUID tenantId, UUID id) {

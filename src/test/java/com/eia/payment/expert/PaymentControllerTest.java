@@ -68,6 +68,88 @@ class PaymentControllerTest {
     }
 
     @Test
+    void filtersPaymentsBySourceTypeAndSourceId() throws Exception {
+        when(repository.findAllBySource(TENANT, "DIRECT_CLAIM", SOURCE_ID))
+                .thenReturn(List.of(paymentWithSource("DIRECT_CLAIM", SOURCE_ID, "CLM-2026-0000001")));
+
+        mvc.perform(get("/internal/v1/payments")
+                        .param("tenantId", TENANT.toString())
+                        .param("sourceType", "direct_claim")
+                        .param("sourceId", SOURCE_ID.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].sourceType").value("DIRECT_CLAIM"))
+                .andExpect(jsonPath("$[0].sourceId").value(SOURCE_ID.toString()));
+
+        verify(repository).findAllBySource(TENANT, "DIRECT_CLAIM", SOURCE_ID);
+        verify(repository, never()).findAll(any());
+    }
+
+    @Test
+    void keepsUnfilteredListWhenNoSourceFilterIsSupplied() throws Exception {
+        when(repository.findAll(TENANT)).thenReturn(List.of(payment("DRAFT", 0)));
+
+        mvc.perform(get("/internal/v1/payments").param("tenantId", TENANT.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].paymentNumber").value("PAY-2026-0044721"));
+
+        verify(repository).findAll(TENANT);
+        verify(repository, never()).findAllBySource(any(), any(), any());
+    }
+
+    @Test
+    void rejectsUnknownSourceTypeFilter() throws Exception {
+        mvc.perform(get("/internal/v1/payments")
+                        .param("tenantId", TENANT.toString())
+                        .param("sourceType", "BRIBE")
+                        .param("sourceId", SOURCE_ID.toString()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_SOURCE_TYPE"))
+                .andExpect(jsonPath("$.message").value("Unknown source type: BRIBE"));
+
+        verify(repository, never()).findAll(any());
+        verify(repository, never()).findAllBySource(any(), any(), any());
+    }
+
+    @Test
+    void rejectsSourceTypeFilterWithoutSourceId() throws Exception {
+        mvc.perform(get("/internal/v1/payments")
+                        .param("tenantId", TENANT.toString())
+                        .param("sourceType", "DIRECT_CLAIM"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_SOURCE_FILTER"))
+                .andExpect(jsonPath("$.message").value("sourceId is required when sourceType is supplied"));
+
+        verify(repository, never()).findAll(any());
+        verify(repository, never()).findAllBySource(any(), any(), any());
+    }
+
+    @Test
+    void rejectsSourceIdFilterWithoutSourceType() throws Exception {
+        mvc.perform(get("/internal/v1/payments")
+                        .param("tenantId", TENANT.toString())
+                        .param("sourceId", SOURCE_ID.toString()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_SOURCE_FILTER"))
+                .andExpect(jsonPath("$.message").value("sourceType is required when sourceId is supplied"));
+
+        verify(repository, never()).findAll(any());
+        verify(repository, never()).findAllBySource(any(), any(), any());
+    }
+
+    @Test
+    void rejectsMalformedSourceIdFilter() throws Exception {
+        mvc.perform(get("/internal/v1/payments")
+                        .param("tenantId", TENANT.toString())
+                        .param("sourceType", "DIRECT_CLAIM")
+                        .param("sourceId", "not-a-uuid"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"));
+
+        verify(repository, never()).findAll(any());
+        verify(repository, never()).findAllBySource(any(), any(), any());
+    }
+
+    @Test
     void returnsStructuredNotFound() throws Exception {
         when(repository.findById(TENANT, PAYMENT_ID)).thenReturn(Optional.empty());
 

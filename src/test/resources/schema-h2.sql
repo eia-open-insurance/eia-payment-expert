@@ -24,8 +24,12 @@ ALTER TABLE payment ADD COLUMN IF NOT EXISTS source_type VARCHAR(32);
 ALTER TABLE payment ADD COLUMN IF NOT EXISTS source_id UUID;
 ALTER TABLE payment ADD COLUMN IF NOT EXISTS source_reference VARCHAR(64);
 
-CREATE INDEX IF NOT EXISTS idx_payment_tenant_source
-    ON payment (tenant_id, source_type, source_id);
+-- Serves source-filtered payment lists, including their newest-first order,
+-- mirroring the idempotent PostgreSQL index migration.
+CREATE INDEX IF NOT EXISTS idx_payment_tenant_source_created
+    ON payment (tenant_id, source_type, source_id, created_at DESC);
+
+DROP INDEX IF EXISTS idx_payment_tenant_source;
 
 -- H2-compatible copy of the PostgreSQL outbox table. JSON payloads are TEXT
 -- here; production DDL uses jsonb.

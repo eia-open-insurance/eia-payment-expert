@@ -47,8 +47,13 @@ ALTER TABLE payment ADD COLUMN IF NOT EXISTS source_type VARCHAR(32);
 ALTER TABLE payment ADD COLUMN IF NOT EXISTS source_id UUID;
 ALTER TABLE payment ADD COLUMN IF NOT EXISTS source_reference VARCHAR(64);
 
-CREATE INDEX IF NOT EXISTS idx_payment_tenant_source
-    ON payment (tenant_id, source_type, source_id);
+-- Serves source-filtered payment lists, including their newest-first order. The
+-- wider index is created before the superseded three-column index is dropped, so
+-- an existing database migrates in one startup and later startups are no-ops.
+CREATE INDEX IF NOT EXISTS idx_payment_tenant_source_created
+    ON payment (tenant_id, source_type, source_id, created_at DESC);
+
+DROP INDEX IF EXISTS idx_payment_tenant_source;
 
 -- Transactional outbox (SPEC 7.5.1). The canonical copy lives in
 -- eia-platform/libs/src/main/resources/db/outbox_event.sql; keep both in sync.

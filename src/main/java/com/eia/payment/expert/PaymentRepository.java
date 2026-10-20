@@ -54,6 +54,19 @@ public class PaymentRepository {
                 """, MAPPER, tenantId);
     }
 
+    /**
+     * Tenant-scoped list of the payments linked to exactly one source. The
+     * caller supplies a complete, normalized pair; the index
+     * {@code (tenant_id, source_type, source_id, created_at DESC)} serves both
+     * the filter and the newest-first order.
+     */
+    public List<Payment> findAllBySource(UUID tenantId, String sourceType, UUID sourceId) {
+        return jdbc.query(SELECT_COLUMNS + """
+                 WHERE tenant_id = ? AND source_type = ? AND source_id = ?
+                 ORDER BY created_at DESC, payment_number
+                """, MAPPER, tenantId, sourceType, sourceId);
+    }
+
     public Optional<Payment> findById(UUID tenantId, UUID id) {
         return jdbc.query(SELECT_COLUMNS + """
                  WHERE tenant_id = ? AND id = ?

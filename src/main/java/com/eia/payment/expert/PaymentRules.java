@@ -282,6 +282,24 @@ public final class PaymentRules {
         return reference;
     }
 
+    /**
+     * A list filter is either absent or a complete normalized sourceType and
+     * sourceId pair; half a pair would silently widen the result.
+     */
+    public static void validateSourceFilter(String sourceType, UUID sourceId) {
+        if (sourceType == null && sourceId == null) {
+            return;
+        }
+        if (sourceType == null) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_SOURCE_FILTER",
+                    "sourceType is required when sourceId is supplied");
+        }
+        if (sourceId == null) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_SOURCE_FILTER",
+                    "sourceId is required when sourceType is supplied");
+        }
+    }
+
     public static void assertExecutionAllowed(String fromStatus, String toStatus) {
         if (EXECUTION_STATUSES.contains(toStatus) && PRE_APPROVAL_STATUSES.contains(fromStatus)) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "PAYMENT_NOT_APPROVED",

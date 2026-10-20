@@ -25,8 +25,10 @@ public class PaymentController {
     }
 
     @GetMapping
-    public List<Payment> list(@RequestParam UUID tenantId) {
-        return service.list(tenantId);
+    public List<Payment> list(@RequestParam UUID tenantId,
+                              @RequestParam(name = "sourceType", required = false) String sourceType,
+                              @RequestParam(name = "sourceId", required = false) UUID sourceId) {
+        return service.list(tenantId, sourceType, sourceId);
     }
 
     @GetMapping("/{id}")

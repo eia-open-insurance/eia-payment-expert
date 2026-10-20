@@ -127,6 +127,22 @@ class PaymentRulesTest {
         PaymentRules.validateCreate(request(null, null, null));
     }
 
+    @Test
+    void validatesSourceFilterPairing() {
+        PaymentRules.validateSourceFilter(null, null);
+        PaymentRules.validateSourceFilter("DIRECT_CLAIM", UUID.randomUUID());
+
+        ApiException ex = assertThrows(ApiException.class,
+                () -> PaymentRules.validateSourceFilter("DIRECT_CLAIM", null));
+        assertEquals("INVALID_SOURCE_FILTER", ex.code());
+        assertEquals("sourceId is required when sourceType is supplied", ex.getMessage());
+
+        ex = assertThrows(ApiException.class,
+                () -> PaymentRules.validateSourceFilter(null, UUID.randomUUID()));
+        assertEquals("INVALID_SOURCE_FILTER", ex.code());
+        assertEquals("sourceType is required when sourceId is supplied", ex.getMessage());
+    }
+
     private static CreatePaymentRequest request(String sourceType, UUID sourceId, String sourceReference) {
         return new CreatePaymentRequest(UUID.randomUUID(), null, "INDEMNITY", null,
                 new BigDecimal("10.00"), "USD", UUID.randomUUID(), LocalDate.of(2026, 10, 19),
