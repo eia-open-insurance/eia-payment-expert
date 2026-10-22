@@ -17,8 +17,8 @@ import java.util.UUID;
 @Repository
 public class PaymentRepository {
     private static final String SELECT_COLUMNS = """
-            SELECT id, tenant_id, payment_number, payment_type, status, amount, currency,
-                   payee_party_id, payment_date, version, created_at, updated_at,
+            SELECT id, tenant_id, payment_number, payment_type, status, status_reason, amount,
+                   currency, payee_party_id, payment_date, version, created_at, updated_at,
                    source_type, source_id, source_reference
               FROM payment
             """;
@@ -29,6 +29,7 @@ public class PaymentRepository {
             rs.getString("payment_number"),
             rs.getString("payment_type"),
             rs.getString("status"),
+            rs.getString("status_reason"),
             rs.getBigDecimal("amount"),
             rs.getString("currency"),
             rs.getObject("payee_party_id", UUID.class),
@@ -92,10 +93,10 @@ public class PaymentRepository {
         UUID id = Uuid7.generate();
         Instant now = Instant.now();
         jdbc.update("""
-                INSERT INTO payment (id, tenant_id, payment_number, payment_type, status, amount,
-                                     currency, payee_party_id, payment_date, version, created_at, updated_at,
-                                     source_type, source_id, source_reference)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
+                INSERT INTO payment (id, tenant_id, payment_number, payment_type, status, status_reason,
+                                     amount, currency, payee_party_id, payment_date, version,
+                                     created_at, updated_at, source_type, source_id, source_reference)
+                VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
                 """, id, request.tenantId(), paymentNumber, paymentType, status, amount,
                 currency, request.payeePartyId(), paymentDate,
                 Timestamp.from(now), Timestamp.from(now),

@@ -211,6 +211,7 @@ class PaymentControllerTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.paymentNumber").value("PAY-2026-0044721"))
                 .andExpect(jsonPath("$.status").value("DRAFT"))
+                .andExpect(jsonPath("$.statusReason").value(nullValue()))
                 .andExpect(jsonPath("$.payeePartyId").value(PAYEE.toString()));
 
         verify(repository).create(any(CreatePaymentRequest.class));
@@ -382,7 +383,8 @@ class PaymentControllerTest {
     void advancesPendingAuthorityToAuthorized() throws Exception {
         when(repository.findById(TENANT, PAYMENT_ID)).thenReturn(Optional.of(payment("PENDING_AUTHORITY", 1)));
         when(repository.updateStatus(eq(TENANT), eq(PAYMENT_ID), eq("AUTHORIZED"),
-                eq("approved by controller"), eq(1))).thenReturn(payment("AUTHORIZED", 2));
+                eq("approved by controller"), eq(1)))
+                .thenReturn(payment("AUTHORIZED", 2, "approved by controller"));
 
         mvc.perform(patch("/internal/v1/payments/{id}/status", PAYMENT_ID)
                         .param("tenantId", TENANT.toString())
@@ -392,7 +394,27 @@ class PaymentControllerTest {
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("AUTHORIZED"))
+                .andExpect(jsonPath("$.statusReason").value("approved by controller"))
                 .andExpect(jsonPath("$.version").value(2));
+    }
+
+    @Test
+    void returnsNullStatusReasonWhenStatusChangesWithoutReason() throws Exception {
+        when(repository.findById(TENANT, PAYMENT_ID)).thenReturn(Optional.of(payment("DRAFT", 0)));
+        when(repository.updateStatus(TENANT, PAYMENT_ID, "CANCELLED", null, 0))
+                .thenReturn(payment("CANCELLED", 1));
+
+        mvc.perform(patch("/internal/v1/payments/{id}/status", PAYMENT_ID)
+                        .param("tenantId", TENANT.toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"status":"CANCELLED","expectedVersion":0}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELLED"))
+                .andExpect(jsonPath("$.statusReason").value(nullValue()));
+
+        verify(repository).updateStatus(TENANT, PAYMENT_ID, "CANCELLED", null, 0);
     }
 
     @ParameterizedTest(name = "{0} -> {1}")
@@ -481,7 +503,7 @@ class PaymentControllerTest {
         String reason = "r".repeat(200);
         when(repository.findById(TENANT, PAYMENT_ID)).thenReturn(Optional.of(payment("DRAFT", 0)));
         when(repository.updateStatus(TENANT, PAYMENT_ID, "CANCELLED", reason, 0))
-                .thenReturn(payment("CANCELLED", 1));
+                .thenReturn(payment("CANCELLED", 1, reason));
 
         mvc.perform(patch("/internal/v1/payments/{id}/status", PAYMENT_ID)
                         .param("tenantId", TENANT.toString())
@@ -489,7 +511,8 @@ class PaymentControllerTest {
                         .content(objectMapper.writeValueAsString(
                                 new UpdatePaymentStatusRequest("CANCELLED", 0, reason))))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("CANCELLED"));
+                .andExpect(jsonPath("$.status").value("CANCELLED"))
+                .andExpect(jsonPath("$.statusReason").value(reason));
 
         verify(repository).updateStatus(TENANT, PAYMENT_ID, "CANCELLED", reason, 0);
     }
@@ -536,13 +559,17 @@ class PaymentControllerTest {
     }
 
     private static Payment payment(String status, int version) {
-        return new Payment(PAYMENT_ID, TENANT, "PAY-2026-0044721", "INDEMNITY", status,
+        return payment(status, version, null);
+    }
+
+    private static Payment payment(String status, int version, String statusReason) {
+        return new Payment(PAYMENT_ID, TENANT, "PAY-2026-0044721", "INDEMNITY", status, statusReason,
                 new BigDecimal("125000.0000"), "USD", PAYEE, PAYMENT_DATE, version, CREATED, CREATED,
                 null, null, null);
     }
 
     private static Payment paymentWithSource(String sourceType, UUID sourceId, String sourceReference) {
-        return new Payment(PAYMENT_ID, TENANT, "PAY-2026-0044721", "INDEMNITY", "DRAFT",
+        return new Payment(PAYMENT_ID, TENANT, "PAY-2026-0044721", "INDEMNITY", "DRAFT", null,
                 new BigDecimal("125000.0000"), "USD", PAYEE, PAYMENT_DATE, 0, CREATED, CREATED,
                 sourceType, sourceId, sourceReference);
     }
