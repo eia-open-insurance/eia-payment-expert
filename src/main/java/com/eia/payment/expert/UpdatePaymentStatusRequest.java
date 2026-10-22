@@ -1,9 +1,10 @@
 package com.eia.payment.expert;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 
 public record UpdatePaymentStatusRequest(
         @NotBlank String status,
         Integer expectedVersion,
-        String reason
+        @Size(max = 200) String reason
 ) {}

@@ -3,6 +3,8 @@ package com.eia.payment.expert;
 import com.eia.platform.libs.outbox.OutboxRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -391,6 +393,69 @@ class PaymentControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("AUTHORIZED"))
                 .andExpect(jsonPath("$.version").value(2));
+    }
+
+    @ParameterizedTest(name = "{0} -> {1}")
+    @CsvSource({
+            "DRAFT, CANCELLED",
+            "DRAFT, VOID",
+            "PENDING_AUTHORITY, CANCELLED",
+            "PENDING_AUTHORITY, VOID",
+            "AUTHORIZED, CANCELLED",
+            "AUTHORIZED, VOID",
+            "APPROVED, VOID",
+            "APPROVED, STOPPED",
+            "SCHEDULED, CANCELLED"
+    })
+    void acceptsCancellationVoidAndStopTransitions(String fromStatus, String toStatus) throws Exception {
+        when(repository.findById(TENANT, PAYMENT_ID)).thenReturn(Optional.of(payment(fromStatus, 0)));
+        when(repository.updateStatus(TENANT, PAYMENT_ID, toStatus, "terminal transition", 0))
+                .thenReturn(payment(toStatus, 1));
+
+        mvc.perform(patch("/internal/v1/payments/{id}/status", PAYMENT_ID)
+                        .param("tenantId", TENANT.toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new UpdatePaymentStatusRequest(toStatus, 0, "terminal transition"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(toStatus));
+
+        verify(repository).updateStatus(TENANT, PAYMENT_ID, toStatus, "terminal transition", 0);
+    }
+
+    @Test
+    void acceptsStatusReasonAtTheDatabaseLimit() throws Exception {
+        String reason = "r".repeat(200);
+        when(repository.findById(TENANT, PAYMENT_ID)).thenReturn(Optional.of(payment("DRAFT", 0)));
+        when(repository.updateStatus(TENANT, PAYMENT_ID, "CANCELLED", reason, 0))
+                .thenReturn(payment("CANCELLED", 1));
+
+        mvc.perform(patch("/internal/v1/payments/{id}/status", PAYMENT_ID)
+                        .param("tenantId", TENANT.toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new UpdatePaymentStatusRequest("CANCELLED", 0, reason))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
+
+        verify(repository).updateStatus(TENANT, PAYMENT_ID, "CANCELLED", reason, 0);
+    }
+
+    @Test
+    void rejectsOverlongStatusReasonBeforeTouchingTheDatabase() throws Exception {
+        String reason = "r".repeat(201);
+
+        mvc.perform(patch("/internal/v1/payments/{id}/status", PAYMENT_ID)
+                        .param("tenantId", TENANT.toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new UpdatePaymentStatusRequest("CANCELLED", 0, reason))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.details[0].field").value("reason"));
+
+        verify(repository, never()).findById(any(), any());
+        verify(repository, never()).updateStatus(any(), any(), any(), any(), anyInt());
     }
 
     @Test

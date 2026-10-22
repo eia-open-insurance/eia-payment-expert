@@ -1,6 +1,8 @@
 package com.eia.payment.expert;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -72,6 +74,22 @@ class PaymentRulesTest {
         ApiException ex = assertThrows(ApiException.class,
                 () -> PaymentRules.validateTransition("DRAFT", "AUTHORIZED"));
         assertEquals("INVALID_STATUS_TRANSITION", ex.code());
+    }
+
+    @ParameterizedTest(name = "{0} -> {1}")
+    @CsvSource({
+            "DRAFT, CANCELLED",
+            "DRAFT, VOID",
+            "PENDING_AUTHORITY, CANCELLED",
+            "PENDING_AUTHORITY, VOID",
+            "AUTHORIZED, CANCELLED",
+            "AUTHORIZED, VOID",
+            "APPROVED, VOID",
+            "APPROVED, STOPPED",
+            "SCHEDULED, CANCELLED"
+    })
+    void acceptsCancellationVoidAndStopTransitions(String fromStatus, String toStatus) {
+        assertEquals(toStatus, PaymentRules.validateTransition(fromStatus, toStatus));
     }
 
     @Test
