@@ -32,6 +32,9 @@ public final class PaymentAllocationRules {
             "CANCELLED", "REVERSED", "FAILED"
     );
 
+    /** A reversal always explains itself within the reversal_reason column size. */
+    public static final int REVERSAL_REASON_MAX_LENGTH = 200;
+
     private static final BigDecimal ZERO = new BigDecimal("0.0000");
 
     private PaymentAllocationRules() {
@@ -66,6 +69,28 @@ public final class PaymentAllocationRules {
                     "Payment " + payment.paymentNumber() + " is " + payment.status()
                             + " and cannot be allocated");
         }
+    }
+
+    /**
+     * A reversal reason is mandatory, trimmed, and capped at the 200-character
+     * column width. The check runs in the service as well as the controller so a
+     * direct service call cannot store a missing or oversized reason.
+     */
+    static String normalizeReversalReason(String rawReason) {
+        if (rawReason == null || rawReason.isBlank()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR",
+                    "Payment allocation reversal validation failed",
+                    List.of(new ApiException.FieldIssue("reason", "reason is required")));
+        }
+        String reason = rawReason.trim();
+        if (reason.length() > REVERSAL_REASON_MAX_LENGTH) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR",
+                    "Payment allocation reversal validation failed",
+                    List.of(new ApiException.FieldIssue("reason",
+                            "reason must be at most " + REVERSAL_REASON_MAX_LENGTH
+                                    + " characters")));
+        }
+        return reason;
     }
 
     static BigDecimal scaleAmount(BigDecimal value) {

@@ -32,7 +32,8 @@ CREATE INDEX IF NOT EXISTS idx_payment_tenant_source_created
 DROP INDEX IF EXISTS idx_payment_tenant_source;
 
 -- H2-compatible copy of the payment allocation table, mirroring the idempotent
--- PostgreSQL DDL. The amount and enumeration checks match production.
+-- PostgreSQL DDL. The amount and enumeration checks match production, as do the
+-- reversal markers that preserve a reversed row for audit.
 CREATE TABLE IF NOT EXISTS payment_allocation (
     id UUID PRIMARY KEY,
     tenant_id UUID NOT NULL,
@@ -43,6 +44,8 @@ CREATE TABLE IF NOT EXISTS payment_allocation (
     amount NUMERIC(19,4) NOT NULL,
     currency CHAR(3) NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    reversed_at TIMESTAMP WITH TIME ZONE,
+    reversal_reason VARCHAR(200),
     CONSTRAINT ck_payment_allocation_amount CHECK (amount > 0),
     CONSTRAINT ck_payment_allocation_target_type CHECK (target_type IN (
         'DIRECT_CLAIM', 'ASSUMED_CLAIM', 'POLICY'
@@ -54,6 +57,10 @@ CREATE TABLE IF NOT EXISTS payment_allocation (
 
 CREATE INDEX IF NOT EXISTS idx_payment_allocation_tenant_payment
     ON payment_allocation (tenant_id, payment_id);
+
+-- Mirror the additive PostgreSQL reversal markers for an existing table.
+ALTER TABLE payment_allocation ADD COLUMN IF NOT EXISTS reversed_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE payment_allocation ADD COLUMN IF NOT EXISTS reversal_reason VARCHAR(200);
 
 -- H2-compatible copy of the PostgreSQL outbox table. JSON payloads are TEXT
 -- here; production DDL uses jsonb.

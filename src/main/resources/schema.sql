@@ -43,8 +43,10 @@ CREATE INDEX IF NOT EXISTS idx_payment_tenant_payee ON payment (tenant_id, payee
 
 -- Payment allocations split a payment amount across a claim or policy target
 -- and a financial component. Additive and idempotent so an existing database
--- gains the table on startup; the sum of allocations may not exceed the
+-- gains the table on startup; the sum of active allocations may not exceed the
 -- payment amount (enforced by the service inside the write transaction).
+-- A reversed allocation keeps its row and original facts for audit and only
+-- gains reversed_at/reversal_reason.
 CREATE TABLE IF NOT EXISTS payment_allocation (
     id UUID PRIMARY KEY,
     tenant_id UUID NOT NULL,
@@ -55,6 +57,8 @@ CREATE TABLE IF NOT EXISTS payment_allocation (
     amount NUMERIC(19,4) NOT NULL,
     currency CHAR(3) NOT NULL,
     created_at TIMESTAMPTZ NOT NULL,
+    reversed_at TIMESTAMPTZ,
+    reversal_reason VARCHAR(200),
     CONSTRAINT ck_payment_allocation_amount CHECK (amount > 0),
     CONSTRAINT ck_payment_allocation_target_type CHECK (target_type IN (
         'DIRECT_CLAIM', 'ASSUMED_CLAIM', 'POLICY'
@@ -66,6 +70,11 @@ CREATE TABLE IF NOT EXISTS payment_allocation (
 
 CREATE INDEX IF NOT EXISTS idx_payment_allocation_tenant_payment
     ON payment_allocation (tenant_id, payment_id);
+
+-- Reversal markers are additive so an existing allocation table gains them on
+-- startup. The service sets both together and never deletes the allocation.
+ALTER TABLE payment_allocation ADD COLUMN IF NOT EXISTS reversed_at TIMESTAMPTZ;
+ALTER TABLE payment_allocation ADD COLUMN IF NOT EXISTS reversal_reason VARCHAR(200);
 
 -- Payment source linkage (DIRECT_CLAIM, ASSUMED_CLAIM, POLICY, OTHER). Additive
 -- and idempotent so an existing payment table gains the columns on startup.

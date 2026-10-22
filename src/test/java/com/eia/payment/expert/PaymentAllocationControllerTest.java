@@ -13,7 +13,9 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -31,7 +33,9 @@ class PaymentAllocationControllerTest {
     private static final UUID ALLOCATION_ID = UUID.fromString("55555555-5555-7555-8555-555555555555");
     private static final UUID TARGET_ID = UUID.fromString("44444444-4444-7444-8444-444444444444");
     private static final Instant CREATED = Instant.parse("2026-10-19T12:00:00Z");
+    private static final Instant REVERSED_AT = Instant.parse("2026-10-21T08:30:00Z");
     private static final String BASE = "/api/v1/payments/" + PAYMENT_ID + "/allocations";
+    private static final String REVERSE = BASE + "/" + ALLOCATION_ID + "/reverse";
 
     private static final String VALID_CREATE = """
             {
@@ -65,7 +69,10 @@ class PaymentAllocationControllerTest {
                 .andExpect(jsonPath("$.items[0].createdAt").value("2026-10-19T12:00:00Z"))
                 .andExpect(jsonPath("$.paymentAmount").value("125000.0000"))
                 .andExpect(jsonPath("$.totalAllocated").value("100000.0000"))
+                .andExpect(jsonPath("$.reversedTotal").value("0.0000"))
                 .andExpect(jsonPath("$.unallocated").value("25000.0000"))
+                .andExpect(jsonPath("$.items[0].reversedAt").value(nullValue()))
+                .andExpect(jsonPath("$.items[0].reversalReason").value(nullValue()))
                 .andExpect(jsonPath("$.currency").value("USD"));
     }
 
@@ -73,7 +80,8 @@ class PaymentAllocationControllerTest {
     void listAcceptsTheTenantHeaderInsteadOfTheQueryParameter() throws Exception {
         when(service.list(TENANT, PAYMENT_ID)).thenReturn(
                 new PaymentAllocationSummary(List.of(), new BigDecimal("125000.0000"),
-                        new BigDecimal("0.0000"), new BigDecimal("125000.0000"), "USD"));
+                        new BigDecimal("0.0000"), new BigDecimal("0.0000"),
+                        new BigDecimal("125000.0000"), "USD"));
 
         mvc.perform(get(BASE).header("X-EIA-Tenant", TENANT.toString()))
                 .andExpect(status().isOk())
@@ -123,6 +131,82 @@ class PaymentAllocationControllerTest {
     }
 
     @Test
+    void reversesAnAllocationWithAReason() throws Exception {
+        when(service.reverse(eq(TENANT), eq(PAYMENT_ID), eq(ALLOCATION_ID),
+                any(ReversePaymentAllocationRequest.class))).thenReturn(reversedItem());
+
+        mvc.perform(post(REVERSE)
+                        .header("X-EIA-Tenant", TENANT.toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"reason":"  duplicate split  "}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.allocationId").value(ALLOCATION_ID.toString()))
+                .andExpect(jsonPath("$.paymentId").value(PAYMENT_ID.toString()))
+                .andExpect(jsonPath("$.reversedAt").value(REVERSED_AT.toString()))
+                .andExpect(jsonPath("$.reversalReason").value("duplicate split"));
+
+        verify(service).reverse(eq(TENANT), eq(PAYMENT_ID), eq(ALLOCATION_ID),
+                argThat(request -> "  duplicate split  ".equals(request.reason())));
+    }
+
+    @Test
+    void reverseRequiresAReason() throws Exception {
+        mvc.perform(post(REVERSE)
+                        .header("X-EIA-Tenant", TENANT.toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"reason":"   "}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.details[0].field").value("reason"));
+
+        mvc.perform(post(REVERSE)
+                        .header("X-EIA-Tenant", TENANT.toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+        verify(service, never()).reverse(any(), any(), any(), any());
+    }
+
+    @Test
+    void reverseRejectsAReasonLongerThanTwoHundredCharacters() throws Exception {
+        mvc.perform(post(REVERSE)
+                        .header("X-EIA-Tenant", TENANT.toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"reason":"%s"}
+                                """.formatted("x".repeat(201))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.details[0].field").value("reason"));
+
+        verify(service, never()).reverse(any(), any(), any(), any());
+    }
+
+    @Test
+    void repeatReversalIs409WithTheStableCode() throws Exception {
+        when(service.reverse(eq(TENANT), eq(PAYMENT_ID), eq(ALLOCATION_ID),
+                any(ReversePaymentAllocationRequest.class)))
+                .thenThrow(new ApiException(HttpStatus.CONFLICT, "ALLOCATION_ALREADY_REVERSED",
+                        "Payment allocation " + ALLOCATION_ID + " is already reversed"));
+
+        mvc.perform(post(REVERSE)
+                        .header("X-EIA-Tenant", TENANT.toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"reason":"duplicate split"}
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("ALLOCATION_ALREADY_REVERSED"))
+                .andExpect(jsonPath("$.status").value(409));
+    }
+
+    @Test
     void missingTenantIsAStructured400() throws Exception {
         mvc.perform(get(BASE))
                 .andExpect(status().isBadRequest())
@@ -131,6 +215,14 @@ class PaymentAllocationControllerTest {
         mvc.perform(post(BASE)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(VALID_CREATE))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("TENANT_REQUIRED"));
+
+        mvc.perform(post(REVERSE)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"reason":"duplicate split"}
+                                """))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("TENANT_REQUIRED"));
 
@@ -196,11 +288,17 @@ class PaymentAllocationControllerTest {
     private static PaymentAllocationSummary summary() {
         return new PaymentAllocationSummary(List.of(item("100000.0000")),
                 new BigDecimal("125000.0000"), new BigDecimal("100000.0000"),
-                new BigDecimal("25000.0000"), "USD");
+                new BigDecimal("0.0000"), new BigDecimal("25000.0000"), "USD");
     }
 
     private static PaymentAllocationItem item(String amount) {
         return new PaymentAllocationItem(ALLOCATION_ID, PAYMENT_ID, "DIRECT_CLAIM", TARGET_ID,
-                "INDEMNITY", new BigDecimal(amount), "USD", CREATED);
+                "INDEMNITY", new BigDecimal(amount), "USD", CREATED, null, null);
+    }
+
+    private static PaymentAllocationItem reversedItem() {
+        return new PaymentAllocationItem(ALLOCATION_ID, PAYMENT_ID, "DIRECT_CLAIM", TARGET_ID,
+                "INDEMNITY", new BigDecimal("100000.0000"), "USD", CREATED, REVERSED_AT,
+                "duplicate split");
     }
 }

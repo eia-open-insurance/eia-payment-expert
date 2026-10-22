@@ -11,8 +11,11 @@ import java.util.UUID;
  * financial component.
  *
  * <p>An allocation is append-only. Its currency is always the parent payment's
- * currency, and the sum of the allocations on one payment may not exceed the
- * payment amount. Money is serialized as a decimal string (SPEC 7.6).</p>
+ * currency, and the sum of the active allocations on one payment may not exceed
+ * the payment amount. A reversal keeps the row and its original facts and only
+ * stamps {@code reversedAt} and {@code reversalReason}; reversed rows no longer
+ * count toward the allocated total. Money is serialized as a decimal string
+ * (SPEC 7.6).</p>
  */
 public record PaymentAllocation(
         UUID id,
@@ -23,6 +26,8 @@ public record PaymentAllocation(
         String component,
         @JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal amount,
         String currency,
-        Instant createdAt
+        Instant createdAt,
+        Instant reversedAt,
+        String reversalReason
 ) {
 }

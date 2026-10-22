@@ -52,6 +52,20 @@ public class PaymentAllocationController {
         return service.create(tenant(tenantId, tenantHeader), paymentId, request);
     }
 
+    /**
+     * Reverses one allocation. The row is preserved for audit and returned with
+     * its reversal stamp; repeating the request is a 409.
+     */
+    @PostMapping("/{allocationId}/reverse")
+    public PaymentAllocationItem reverse(
+            @RequestParam(value = "tenantId", required = false) UUID tenantId,
+            @RequestHeader(value = "X-EIA-Tenant", required = false) UUID tenantHeader,
+            @PathVariable UUID paymentId,
+            @PathVariable UUID allocationId,
+            @Valid @RequestBody ReversePaymentAllocationRequest request) {
+        return service.reverse(tenant(tenantId, tenantHeader), paymentId, allocationId, request);
+    }
+
     private static UUID tenant(UUID tenantIdParam, UUID tenantHeader) {
         UUID tenantId = tenantIdParam != null ? tenantIdParam : tenantHeader;
         if (tenantId == null) {

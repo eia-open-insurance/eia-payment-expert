@@ -28,13 +28,15 @@ import java.util.UUID;
  * requires {@code aggregateVersion >= 1}; the event version is therefore the row
  * version plus one (create -> 1, first update -> 2). Payment allocations are
  * append-only child records with no row version of their own, so their events
- * use the {@code PaymentAllocation} aggregate at version 1.</p>
+ * use the {@code PaymentAllocation} aggregate: create is version 1, reversal is
+ * version 2.</p>
  */
 final class PaymentEvents {
     static final String CREATED = "payment.payment.created";
     static final String UPDATED = "payment.payment.updated";
     static final String STATUS_CHANGED = "payment.payment.status-changed";
     static final String ALLOCATION_CREATED = "payment.allocation.created";
+    static final String ALLOCATION_REVERSED = "payment.allocation.reversed";
 
     private static final Book EVENT_BOOK = Book.DIRECT;
     private static final String VERTICAL = "payment";
@@ -125,6 +127,48 @@ final class PaymentEvents {
                 .aggregateType(ALLOCATION_AGGREGATE_TYPE)
                 .aggregateId(allocation.id())
                 .aggregateVersion(1L)
+                .sequence(0)
+                .actor(EventActor.system("eia-payment-expert"))
+                .subject(EventSubject.of(VERTICAL, "payment-allocation", allocation.id(),
+                        payment.paymentNumber()))
+                .links(List.of())
+                .data(data)
+                .metadata(EventMetadata.v1(SOURCE_BUILD))
+                .build();
+    }
+
+    /**
+     * Reversal of an allocation. The payload is the reversal contract: the
+     * parent payment, the allocation fields, the released amount, the required
+     * reason, and the reversal instant. The allocation aggregate moves from
+     * version 1 (created) to version 2 (reversed).
+     */
+    static EventEnvelope allocationReversed(Payment payment, PaymentAllocation allocation,
+                                            Instant now) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("paymentId", payment.id());
+        data.put("allocationId", allocation.id());
+        data.put("targetType", allocation.targetType());
+        data.put("targetId", allocation.targetId());
+        data.put("component", allocation.component());
+        data.put("amount", money(allocation.amount()));
+        data.put("reason", allocation.reversalReason());
+        data.put("reversedAt", allocation.reversedAt());
+
+        UUID eventId = EventIds.deterministic(payment.tenantId(), ALLOCATION_AGGREGATE_TYPE,
+                allocation.id(), 2L, ALLOCATION_REVERSED);
+        return EventEnvelope.builder()
+                .eventId(eventId)
+                .eventType(ALLOCATION_REVERSED)
+                .eventVersion(1)
+                .occurredAt(now)
+                .recordedAt(now)
+                .tenantId(payment.tenantId())
+                .book(EVENT_BOOK)
+                .vertical(VERTICAL)
+                .aggregateType(ALLOCATION_AGGREGATE_TYPE)
+                .aggregateId(allocation.id())
+                .aggregateVersion(2L)
                 .sequence(0)
                 .actor(EventActor.system("eia-payment-expert"))
                 .subject(EventSubject.of(VERTICAL, "payment-allocation", allocation.id(),
