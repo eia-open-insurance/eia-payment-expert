@@ -92,6 +92,37 @@ class PaymentRulesTest {
         assertEquals(toStatus, PaymentRules.validateTransition(fromStatus, toStatus));
     }
 
+    @ParameterizedTest(name = "{0} -> {1}")
+    @CsvSource({
+            "PAID, RETURNED",
+            "PAID, REVERSED",
+            "PARTIALLY_PAID, RETURNED",
+            "PARTIALLY_PAID, REVERSED",
+            "RECONCILED, ESCHEATED",
+            "RETURNED, SCHEDULED",
+            "RETURNED, CANCELLED"
+    })
+    void acceptsPostPaymentTerminalTransitions(String fromStatus, String toStatus) {
+        assertEquals(toStatus, PaymentRules.validateTransition(fromStatus, toStatus));
+    }
+
+    @ParameterizedTest(name = "{0} -> {1} is rejected")
+    @CsvSource({
+            "PAID, CANCELLED",
+            "PARTIALLY_PAID, CANCELLED",
+            "RECONCILED, RETURNED",
+            "RETURNED, PAID",
+            "REVERSED, RETURNED",
+            "ESCHEATED, RECONCILED"
+    })
+    void rejectsInvalidPostPaymentTerminalTransitions(String fromStatus, String toStatus) {
+        ApiException ex = assertThrows(ApiException.class,
+                () -> PaymentRules.validateTransition(fromStatus, toStatus));
+        assertEquals("INVALID_STATUS_TRANSITION", ex.code());
+        assertEquals("Cannot transition payment from " + fromStatus + " to " + toStatus,
+                ex.getMessage());
+    }
+
     @Test
     void rejectsUnknownCreateStatus() {
         ApiException ex = assertThrows(ApiException.class,

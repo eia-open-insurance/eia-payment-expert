@@ -423,6 +423,59 @@ class PaymentControllerTest {
         verify(repository).updateStatus(TENANT, PAYMENT_ID, toStatus, "terminal transition", 0);
     }
 
+    @ParameterizedTest(name = "{0} -> {1}")
+    @CsvSource({
+            "PAID, RETURNED",
+            "PAID, REVERSED",
+            "PARTIALLY_PAID, RETURNED",
+            "PARTIALLY_PAID, REVERSED",
+            "RECONCILED, ESCHEATED",
+            "RETURNED, SCHEDULED",
+            "RETURNED, CANCELLED"
+    })
+    void acceptsPostPaymentTerminalTransitionsAndPersistsTargetStatus(String fromStatus, String toStatus)
+            throws Exception {
+        String reason = "r".repeat(200);
+        when(repository.findById(TENANT, PAYMENT_ID)).thenReturn(Optional.of(payment(fromStatus, 0)));
+        when(repository.updateStatus(TENANT, PAYMENT_ID, toStatus, reason, 0))
+                .thenReturn(payment(toStatus, 1));
+
+        mvc.perform(patch("/internal/v1/payments/{id}/status", PAYMENT_ID)
+                        .param("tenantId", TENANT.toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new UpdatePaymentStatusRequest(toStatus, 0, reason))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(toStatus))
+                .andExpect(jsonPath("$.version").value(1));
+
+        verify(repository).updateStatus(TENANT, PAYMENT_ID, toStatus, reason, 0);
+    }
+
+    @ParameterizedTest(name = "{0} -> {1} is rejected")
+    @CsvSource({
+            "PAID, CANCELLED",
+            "PARTIALLY_PAID, CANCELLED",
+            "RECONCILED, RETURNED",
+            "RETURNED, PAID",
+            "REVERSED, RETURNED",
+            "ESCHEATED, RECONCILED"
+    })
+    void rejectsInvalidPostPaymentTerminalTransitions(String fromStatus, String toStatus) throws Exception {
+        when(repository.findById(TENANT, PAYMENT_ID)).thenReturn(Optional.of(payment(fromStatus, 0)));
+
+        mvc.perform(patch("/internal/v1/payments/{id}/status", PAYMENT_ID)
+                        .param("tenantId", TENANT.toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new UpdatePaymentStatusRequest(toStatus, 0, "invalid terminal transition"))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_STATUS_TRANSITION"));
+
+        verify(repository, never()).updateStatus(any(), any(), any(), any(), anyInt());
+        verify(outbox, never()).insert(any());
+    }
+
     @Test
     void acceptsStatusReasonAtTheDatabaseLimit() throws Exception {
         String reason = "r".repeat(200);
